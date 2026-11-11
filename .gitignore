@@ -1,0 +1,12 @@
+/build/
+/dist/
+/private/
+**/__pycache__/
+*.pyc
+.DS_Store
+/src/RembrandtGfx/command_staging.hpp
+**/fw/
+*.bin
+*.macho
+*.o
+*.kext/

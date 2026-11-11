@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "record_type": "sanitized_historical_real_device_result",
+  "date": "2026-11-11",
+  "candidate": 23,
+  "environment": {
+    "device": "RedmiBook Pro 14 2022",
+    "cpu": "Ryzen 7 6800H",
+    "gpu": "Radeon 680M",
+    "architecture": "x86_64",
+    "os_version": "26.7.2",
+    "os_build": "25G332",
+    "smbios": "MacPro7,1",
+    "fixed_vram_mib": 512,
+    "cpu_visible_aperture_mib": 256,
+    "metal_unified_memory": false,
+    "internal_display_pixels": [
+      2560,
+      1600
+    ],
+    "hidpi_logical_pixels": [
+      1280,
+      800
+    ],
+    "display_refresh_hz": 120
+  },
+  "experiment": {
+    "enabled_flags": [
+      "-rmballoclow",
+      "-rmballocboth"
+    ],
+    "native_retry_type": 2,
+    "render_command_staging_retained": true,
+    "hardware_video": "disabled"
+  },
+  "basic_metal": {
+    "passed": true,
+    "compute_values_checked": 1024,
+    "render_pixels_checked": 1024,
+    "render_size": [
+      32,
+      32
+    ]
+  },
+  "render_writer_verified_bytes": 1294,
+  "texture_pattern": {
+    "texture_size": [
+      2182,
+      1394
+    ],
+    "pixel_format": "RGBA16Float",
+    "storage_mode": "Private",
+    "cycles_per_stage": 3,
+    "samples_per_texture_per_cycle": 16,
+    "stages": [
+      {
+        "phase": 1,
+        "texture_count": 1,
+        "texture_allocated_bytes": 25952256,
+        "readback_pixels_checked": 48,
+        "passed": true,
+        "gpu_recovery_count_values": [
+          0
+        ],
+        "gpu_reclaim_wait_seconds": 0.0
+      },
+      {
+        "phase": 3,
+        "texture_count": 3,
+        "texture_allocated_bytes": 77856768,
+        "readback_pixels_checked": 144,
+        "passed": true,
+        "gpu_recovery_count_values": [
+          0
+        ],
+        "gpu_reclaim_wait_seconds": 0.0
+      },
+      {
+        "phase": 6,
+        "texture_count": 6,
+        "texture_allocated_bytes": 155713536,
+        "readback_pixels_checked": 288,
+        "passed": true,
+        "gpu_recovery_count_values": [
+          0
+        ],
+        "gpu_reclaim_wait_seconds": 0.0
+      }
+    ],
+    "total_readback_pixel_samples": 480,
+    "process_exit_status": 0,
+    "historical_observer_binding_restored": true,
+    "historical_observer_protection_restore_status": 0
+  },
+  "allocation_retry": {
+    "throttled_logged_records": 102,
+    "all_logged_retry_types_are_2": true,
+    "windowserver_logged_records": 9,
+    "windowserver_logged_successes": 4,
+    "both_ranges_necessary_request": {
+      "size": 790528,
+      "rounded": 851968,
+      "alignment": 4096,
+      "block": 65536,
+      "retry": 1,
+      "type": 2,
+      "result": 1,
+      "lowFree": 1269760,
+      "lowLargest": 270336,
+      "lowUsable": 720896,
+      "lowBlocks": 21,
+      "highFree": 471040,
+      "highLargest": 180224,
+      "highUsable": 131072,
+      "highBlocks": 13,
+      "combined_usable_bytes": 851968
+    },
+    "windowserver_final_retry_samples_at_least_16_mib": 0,
+    "request_linked_to_later_pixels": false
+  },
+  "window_operations": {
+    "candidate23_activations": 21,
+    "candidate23_all_foregrounds_and_main_windows_verified": true,
+    "rounds": [
+      {
+        "candidate": 22,
+        "workload": "five_applications",
+        "activations": 15,
+        "duration_seconds": 27.176,
+        "windowserver_cpu_increase_seconds": 16.06,
+        "whole_gpu_reclaim_wait_ms": 136.022,
+        "gpu_recovery_count": 0
+      },
+      {
+        "candidate": 23,
+        "workload": "five_applications",
+        "activations": 15,
+        "duration_seconds": 27.533,
+        "windowserver_cpu_increase_seconds": 15.62,
+        "whole_gpu_reclaim_wait_ms": 131.693,
+        "gpu_recovery_count": 0
+      },
+      {
+        "candidate": 22,
+        "workload": "finder_safari",
+        "activations": 6,
+        "duration_seconds": 13.071,
+        "windowserver_cpu_increase_seconds": 7.04,
+        "whole_gpu_reclaim_wait_ms": 264.221,
+        "gpu_recovery_count": 0
+      },
+      {
+        "candidate": 23,
+        "workload": "finder_safari",
+        "activations": 6,
+        "duration_seconds": 13.225,
+        "windowserver_cpu_increase_seconds": 7.34,
+        "whole_gpu_reclaim_wait_ms": 68.067,
+        "gpu_recovery_count": 0
+      }
+    ],
+    "clock_source": "CLOCK_UPTIME_RAW checked against mach_absolute_time",
+    "comparison": "Not a strict A/B: boot age, page contents, warm-up, and five-application window checks differed."
+  },
+  "user_feedback": {
+    "quote": "好像流畅了一点？反正卡顿没那么糟糕了",
+    "interpretation": "Uncertain partial subjective improvement; Safari stutter not fully accepted as fixed."
+  },
+  "validation_limits": {
+    "fps": "not measured",
+    "upstream_full_suite": "not run",
+    "complete_machine_acceptance": "not run",
+    "sustained_load": "not tested this run",
+    "sleep_wake": "not tested this run",
+    "external_display": "not tested",
+    "other_hardware_and_os_builds": "not tested",
+    "candidate23_to22_real_rollback": "not executed; candidate22 materials and manifests checked",
+    "complete_retry_success_rate": "not available from throttled records"
+  },
+  "source_file_hashes": {
+    "runtime_summary_json": "d6e1fd0f25ddf3f926cf67265131d84c505d3898000b6b26c3ba0140fa057a4a",
+    "real_device_note_markdown": "3670618088dec6a7cb89a78e1ffdc75394b5ffbefd6c3497c4cdf90d748125b7",
+    "texture_pattern_analysis_json": "17e618b746d8bfcb546aecd8a40d127e1e4f6636bbe24eb221bbd4d4b5681379",
+    "allocation_summary_json": "5770f681239865015c0e022bca58a868ea1ab718c78acff2e69359de1a4a9990"
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/caoshiyuan0211-blip/winmax2-2022-6800u-hackintosh",
+    "commit": "a114bdef1d48ecf7a4672d29097af3d91eb3ff80",
+    "archive_sha256": "77b776796bd1e18a9016898875106bb85c0f522520956be2ab47e022fe4f5d1d",
+    "license": "GPL-2.0-only",
+    "export": "candidate23, RembrandtGfx-AllocCombined; files copied unchanged except omitted private inputs",
+    "candidate23_probe_sha256": "f01a66d04d17899cf060f337dc1163b0f7623a6bd2fe9ed32d7d29372e5f8a19",
+    "files": {
+      "src/RembrandtGfx/Info.plist": "0990b3f28da6c0d976f2af0c10e714a0645776571fee9bded544ff2dd738bfa7",
+      "src/RembrandtGfx/LICENSE": "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3",
+      "src/RembrandtGfx/dcnremap.hpp": "297c40141ae8135a86117b76e41133e7d838eaa125221d4a1bf2c324470fa433",
+      "src/RembrandtGfx/disklog.cpp": "0fbed7e4c4b9b08c88dc94f9235c1dda21d395fe307ce7995633dbacf64bbb0c",
+      "src/RembrandtGfx/display.cpp": "8fb35c81b4481f9d445a6f372a3625bcb6622b50a77d2d810193b0c1d85f25a2",
+      "src/RembrandtGfx/dmub.cpp": "d405c021c5eb80a7f9c27127b429e83b4efb938273716a1ae640a6edf0901c88",
+      "src/RembrandtGfx/firmware.cpp": "4f68936f4fbbf3332c0f96f384b53cc182081e7b00c77e2673fd5576169bd484",
+      "src/RembrandtGfx/fw.hpp": "5c02567e6d5da693c6d8f3899e48139f0892c333a4a3f48ddcd23422b5f469e4",
+      "src/RembrandtGfx/fw.s": "50f5522bbce7ee6898dd234d2d91a6fe67cb1ad08630e561b8cd1e94c3552366",
+      "src/RembrandtGfx/golden.cpp": "f2e4a206754ddb189a7769d8d4966a6155e1f553ad79c3fe5d0cb1ed29681029",
+      "src/RembrandtGfx/info.c": "e7bd541186cd556a45584e29449006fb95a986af3a00a28d28d0d124336215f7",
+      "src/RembrandtGfx/kern_start.cpp": "3cfcbc9cb360d554d4b279f9ab837814b42977ef42067f306f81a7f4c3dcfa15",
+      "src/RembrandtGfx/mmio.cpp": "589984df2af543766ad461c468e93c33780d618c8078e5ee5f8931a886bc7c96",
+      "src/RembrandtGfx/nvcopy.cpp": "5057a354c5c91915ebfd68ec44855b18fee130eaf344ec2b37886eb028868ce8",
+      "src/RembrandtGfx/phyvalid.hpp": "13218e83047a01a0b37115fcb5a0b796cc08a3073a0280bff0f8bb178caad371",
+      "src/RembrandtGfx/probe.cpp": "f01a66d04d17899cf060f337dc1163b0f7623a6bd2fe9ed32d7d29372e5f8a19",
+      "src/RembrandtGfx/regmap.hpp": "7c969f2e6665d88f8f1fdc6b0bbe419498cbfd51bd2d0faec2b2e6278892f715",
+      "src/RembrandtGfx/regsnap.hpp": "4f18433f5bb298170b3b43fb4c6109418ac7cc2395cbb717c8165c7c62a6c67b",
+      "src/RembrandtGfx/rmb.hpp": "f407c63b03c7ea99d0976fd8a0c93f31b2e2b55bec93c6770b61d93f5f09b101",
+      "src/RembrandtGfx/sleep.cpp": "1a45963cf37ff05fa6fd6d22996b2bc36144884c51170dda1cae8478e5158388",
+      "src/RembrandtGfx/smu.cpp": "703893ccd38ae27aa91a9fe76bd99bb8783dd80393c7053c0c2b1119a7f30215",
+      "src/RembrandtGfx/test_vcn_vm.cpp": "fee5ff8c489a9fae9d43bf0c9a208e6d6fc8076888db69f841c617ca3ce47c1c",
+      "src/RembrandtGfx/umdpatch.cpp": "f96c9586d67c2beb3221a8d16aa6edc5f50522b894c8d0fca5848d7f060595be",
+      "src/RembrandtGfx/usb4.cpp": "c8d46880d0805289380764750b196390379c2471f98f80d51b9a5ed2f03cd325",
+      "src/RembrandtGfx/vcn_vm.hpp": "5c40969df5a0aac88c99c37a9213461942b7335ca54eaac87ab38ada3bbf6b3d",
+      "src/RembrandtGfx/vcn_vm_table.hpp": "df302ca543ba5fed7797bd224330f6dc869dd13fe26873fca0a9a1b3d3a58ab9",
+      "src/RembrandtGfx/vmwatch.cpp": "edf48e96fea8f3957ba5237fef609d64e2b82f14b93a8150fc2ec8c68fc102ca",
+      "src/RembrandtGfx/vramcrc.cpp": "5ae54bd77699299e7cb7f19b795c4dbee04947ac4b4239418703e223794839e9"
+    }
+  },
+  "dependencies": {
+    "MacKernelSDK": {
+      "repository": "https://github.com/acidanthera/MacKernelSDK",
+      "commit": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "archive_url": "https://codeload.github.com/acidanthera/MacKernelSDK/tar.gz/3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+      "archive_sha256": "8931e622b6d16a7052cb2c2dabe16be06963a34b747f19e6cda2bbe8bc7e2557"
+    },
+    "Lilu": {
+      "repository": "https://github.com/acidanthera/Lilu",
+      "commit": "e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "archive_url": "https://codeload.github.com/acidanthera/Lilu/tar.gz/e4748cc081bf060302c7d3c44a643ce1d11b7e1d",
+      "archive_sha256": "62c40578dc3eac1b39f1def5ecc0e1f81caa425034cfa061723e57c648dace85"
+    }
+  },
+  "firmware": {
+    "files": {
+      "yellow_carp_ce.bin": {
+        "sha256": "bd1fd7a357d7c9aa489469166435aa2d3e2ee1b324d4be35e9a648c794281674",
+        "bytes": 263296,
+        "zst_sha256": "d625d1e4f232298c3b920cde71daeda2851bcde368186419f53afab8460f6b3a",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_ce.bin"
+      },
+      "yellow_carp_dmcub.bin": {
+        "sha256": "8d546bbbdcec355625dfb4bb4baef78841793c9c0209be42df5305855094f4eb",
+        "bytes": 236048,
+        "zst_sha256": "dca6f2309f4c27005103b41a11d23b12ba28d11a845f9d023bc61e6d1d5e87c1",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_dmcub.bin"
+      },
+      "yellow_carp_me.bin": {
+        "sha256": "e2eeb8958a08231813943dabffd0e18ab65e7c0338a36155b9e6584ce55df31f",
+        "bytes": 263424,
+        "zst_sha256": "4ac52a8fca19ae9214c01ba230e5da15928dfeb95e6f2d4fe89364f22977d3bd",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_me.bin"
+      },
+      "yellow_carp_mec.bin": {
+        "sha256": "9020014a34a9357b28058f4ecdf1f0d3ffbcac7265df04c544722ed5f7447e9b",
+        "bytes": 268160,
+        "zst_sha256": "2f1e58b9127350c04da3d417036935761d8d7771ffa709bc56f5c14707cbfb7b",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_mec.bin"
+      },
+      "yellow_carp_mec2.bin": {
+        "sha256": "9020014a34a9357b28058f4ecdf1f0d3ffbcac7265df04c544722ed5f7447e9b",
+        "bytes": 268160,
+        "zst_sha256": "2f1e58b9127350c04da3d417036935761d8d7771ffa709bc56f5c14707cbfb7b",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_mec2.bin"
+      },
+      "yellow_carp_pfp.bin": {
+        "sha256": "b817f15a37ae080d5037a159732d60be24dda0bed74b6a3ba609d7c38f4d29a7",
+        "bytes": 263424,
+        "zst_sha256": "1b6ab2d52f87fdc7f71e6d45b068909072a238fc6f65d767f99d463d35890589",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_pfp.bin"
+      },
+      "yellow_carp_rlc.bin": {
+        "sha256": "bf41c78ecf4f3444ee14c917358485e55bfc5c496779821f1cad643b25a3da7f",
+        "bytes": 178128,
+        "zst_sha256": "97e7dd79e022be2cdd1503ae690716df8b8c04a5120f2955e0d47b6181368171",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_rlc.bin"
+      },
+      "yellow_carp_sdma.bin": {
+        "sha256": "be8cdc90616c6aa1e92cf1307e18515958a5c6b80552e20fa4452e2e61c18fd4",
+        "bytes": 34048,
+        "zst_sha256": "0a1ba1eb6b433b5f15675d7c1732983ece5ac18149c99c708d411119f09e2d5b",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_sdma.bin"
+      },
+      "yellow_carp_toc.bin": {
+        "sha256": "9fc8da2f6106bf657222ca4bcca687e66e657e5710278c694d9d0e862221758d",
+        "bytes": 1792,
+        "zst_sha256": "2e0fd0e07870d68b4fd9e8c81b67a9471f555a0833486e5ffde68367c9b236f7",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_toc.bin"
+      },
+      "yellow_carp_vcn.bin": {
+        "sha256": "31176d1a359aad08d462895eb02184b5d36c8d7570afc380ec889a9c7ffe8cb4",
+        "bytes": 575056,
+        "zst_sha256": "93b15b98f3fa79969c7f6e20ed6da38097d2652b15625ff555f4bf3d143a8cc3",
+        "source_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/yellow_carp_vcn.bin"
+      }
+    },
+    "extractor_sha256": "bc5385d5089ebb840056a38001b4b8e5cfcc0931d41ed3233fc9eccfa52509f5",
+    "extractor_upstream_path": "scripts/fw-extract.py",
+    "policy": "User-supplied local firmware only; no firmware is redistributed.",
+    "source": {
+      "repository": "https://gitlab.com/kernel-firmware/linux-firmware",
+      "commit": "69e51bb26f3fa3e118dd770f1962a93bed690dc1",
+      "commit_url": "https://gitlab.com/kernel-firmware/linux-firmware/-/commit/69e51bb26f3fa3e118dd770f1962a93bed690dc1",
+      "raw_url_prefix": "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/69e51bb26f3fa3e118dd770f1962a93bed690dc1/amdgpu/",
+      "retrieval": "scripts/fetch_firmware.py; raw files downloaded locally and checked against the existing SHA-256 values"
+    }
+  },
+  "command_staging": {
+    "native_uuid": "F89F483D-39AC-368D-B9D9-FB689179EFD2",
+    "native_text_offset": "0x108ae6",
+    "size": 1294,
+    "original_sha256": "f49c9d6d8cd0ad91aefefe857554f2d9e1c0e9d2fdbde75110100fc057e141dd",
+    "replacement_sha256": "37d7b6c5671f9df8b25b02a9cdc2d951e29b5e46ead7d13f1161c38b78074a07",
+    "generated_header_sha256": "e5525a1407afe9b36d65aea768317d73d7d504b8b443db93c5bc7160642221f3",
+    "policy": "Original Apple function and generated arrays are local inputs/outputs; never redistributed."
+  },
+  "vcn_vm_table": {
+    "source": "AMD Linux v6.17 MMHUB register headers (MIT notices retained in generated table)",
+    "headers": {
+      "mmhub_2_0_0_offset.h": {
+        "url": "https://raw.githubusercontent.com/torvalds/linux/v6.17/drivers/gpu/drm/amd/include/asic_reg/mmhub/mmhub_2_0_0_offset.h",
+        "sha256": "8160f69caa71331f305d8b8fc3f82b4c1c213e48a81c529efce47c4c6ea0c291"
+      },
+      "mmhub_2_3_0_offset.h": {
+        "url": "https://raw.githubusercontent.com/torvalds/linux/v6.17/drivers/gpu/drm/amd/include/asic_reg/mmhub/mmhub_2_3_0_offset.h",
+        "sha256": "599b26300e240061fb43a329dc7693af15379d99124c9656312b3b9773003d20"
+      }
+    },
+    "generated_file": "src/RembrandtGfx/vcn_vm_table.hpp",
+    "generated_sha256": "df302ca543ba5fed7797bd224330f6dc869dd13fe26873fca0a9a1b3d3a58ab9"
+  }
+}

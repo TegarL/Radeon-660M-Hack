@@ -1,0 +1,925 @@
+--- a/src/RembrandtGfx/display.cpp
++++ b/src/RembrandtGfx/display.cpp
+@@ -2610,8 +2610,8 @@
+ 		return;
+ 	}
+ 	LOG("novcn: hid %u hardware video properties (VideoToolbox uses software codecs)", stripVideoProps(accel));
+-	// The driver may publish more at runtime (engine powerUp); keep them off for 3 min.
+-	for (int i = 0; i < 180; i++) {
++	// Preparation mode must not advertise hardware codecs later during an engine power-up.
++	for (int i = 0; vcnPrepOn() || i < 180; i++) {
+ 		IOSleep(1000);
+ 		if (auto n = stripVideoProps(accel))
+ 			LOG("novcn: hid %u more video properties at +%d s", n, i + 1);
+@@ -3308,7 +3308,8 @@
+ 		patcher.clearError();
+ 	}
+ 
+-	constexpr mach_vm_address_t TextBase = FbTextBase, RegWait = 0xc0f6bd7;
++	// Tahoe 26.7.2 / 25G332: matched against the Apple framebuffer's unchanged entry code.
++	constexpr mach_vm_address_t TextBase = FbTextBase, RegWait = 0xc0f6d23;
+ 	static const uint8_t prologue[] {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53};
+ 	auto at = address + (RegWait - TextBase);
+ 	if (memcmp(reinterpret_cast<void *>(at), prologue, sizeof(prologue))) {
+@@ -3319,7 +3320,7 @@
+ 	LOG("dcn: generic_reg_wait %s", orgRegWait ? "hooked" : "hook FAILED");
+ 	patcher.clearError();
+ 
+-	constexpr mach_vm_address_t DalLog = 0xc14fb83;
++	constexpr mach_vm_address_t DalLog = 0xc14f7b3;
+ 	static const uint8_t logPrologue[] {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x53, 0x48, 0x81, 0xec};
+ 	auto logAt = address + (DalLog - TextBase);
+ 	if (memcmp(reinterpret_cast<void *>(logAt), logPrologue, sizeof(logPrologue))) {
+--- a/src/RembrandtGfx/firmware.cpp
++++ b/src/RembrandtGfx/firmware.cpp
+@@ -11,6 +11,29 @@
+ #include <IOKit/pwr_mgt/RootDomain.h>
+ 
+ namespace {
++
++// AmdTtlServices::getFirmware copies into this caller-owned 1 MiB buffer on 25G332.
++struct TtlFirmwareInfo {
++	uint8_t *data;
++	uint32_t capacity;
++	uint32_t size;
++};
++static_assert(sizeof(TtlFirmwareInfo) == 16, "TTL firmware output ABI");
++using GetFirmwareFn = bool (*)(uint64_t, const char *, TtlFirmwareInfo *);
++mach_vm_address_t orgGetVcnFirmware;
++
++bool wrapGetVcnFirmware(uint64_t self, const char *name, TtlFirmwareInfo *info) {
++	if (!name || strcmp(name, "ativvaxy_vcn3_1.dat"))
++		return reinterpret_cast<GetFirmwareFn>(orgGetVcnFirmware)(self, name, info);
++	if (!info || !info->data || info->capacity < FW_SIZE(vcn)) {
++		LOG("vcnprep: firmware buffer unavailable or too small (need %u)", FW_SIZE(vcn));
++		return false;
++	}
++	memcpy(info->data, fw_yc_vcn, FW_SIZE(vcn));
++	info->size = FW_SIZE(vcn);
++	LOG("vcnprep: supplied Rembrandt VCN firmware, %u bytes", info->size);
++	return true;
++}
+ 
+ struct Substitution {
+ 	const char *symbol;
+@@ -201,6 +224,13 @@
+ 
+ 
+ void firmwareRoute(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++	if (vcnPrepOn()) {
++		KernelPatcher::RouteRequest vcn {
++			"__ZN14AmdTtlServices11getFirmwareEPKcP10_TtlFwInfo", wrapGetVcnFirmware, orgGetVcnFirmware};
++		bool ok = patcher.routeMultiple(index, &vcn, 1, address, size);
++		LOG("vcnprep: firmware hook %s", ok ? "installed" : "FAILED");
++		patcher.clearError();
++	}
+ 	const Substitution subs[] {
+ 		{"_gc_10_3_4_me_ucode", fw_yc_me, FW_SIZE(me)},
+ 		{"_gc_10_3_4_pfp_ucode", fw_yc_pfp, FW_SIZE(pfp)},
+--- a/src/RembrandtGfx/fw.hpp
++++ b/src/RembrandtGfx/fw.hpp
+@@ -15,4 +15,5 @@
+ FW_DECL(sdma)
+ FW_DECL(toc)
+ FW_DECL(dmcub)
++FW_DECL(vcn)
+ #define FW_SIZE(n) static_cast<uint32_t>(fw_yc_##n##_end - fw_yc_##n)
+--- a/src/RembrandtGfx/fw.s
++++ b/src/RembrandtGfx/fw.s
+@@ -71,3 +71,8 @@
+ _fw_yc_dmcub:
+ 	.incbin "fw/dmcub.bin"
+ _fw_yc_dmcub_end:
++	.globl _fw_yc_vcn, _fw_yc_vcn_end
++	.p2align 8
++_fw_yc_vcn:
++	.incbin "fw/vcn.bin"
++_fw_yc_vcn_end:
+--- a/src/RembrandtGfx/kern_start.cpp
++++ b/src/RembrandtGfx/kern_start.cpp
+@@ -787,7 +787,8 @@
+ 		LOG("xhciintr: disabled (-rmbxhciintr1)");
+ 		return;
+ 	}
+-	// 15.8.1 AppleUSBXHCI; off = byte holding 0x40 of the 0x400000 interrupter-target-1 immediate
++	// 25G332 moved the data TRB target into two branches: a full immediate and 0x20 << 17.
++	// Each off selects only the interrupter-target bit, preserving the transfer size.
+ 	static const struct {
+ 		const char *name;
+ 		uint8_t find[16];
+@@ -795,7 +796,8 @@
+ 	} sites[] {
+ 		{"setup", {0x48, 0x89, 0x01, 0xc7, 0x41, 0x08, 0x08, 0x00, 0x40, 0x00}, 10, 8},
+ 		{"normal", {0xc7, 0x44, 0x08, 0x08, 0x00, 0x00, 0x40, 0x00, 0xc7, 0x44, 0x08, 0x0c, 0x21, 0x04, 0x00, 0x00}, 16, 6},
+-		{"data", {0x44, 0x09, 0xf1, 0x81, 0xc9, 0x00, 0x00, 0x40, 0x00, 0x42, 0x89, 0x4c, 0x2a, 0x08}, 14, 7},
++		{"data-final", {0xb9, 0x00, 0x00, 0x40, 0x00, 0x4c, 0x89, 0xad, 0xc0, 0xfe, 0xff, 0xff, 0x49, 0x39, 0xc5}, 15, 3},
++		{"data-pending", {0x0f, 0x43, 0xc8, 0x83, 0xc9, 0x20, 0xc1, 0xe1, 0x11}, 9, 5},
+ 		{"event", {0x48, 0xc7, 0x04, 0x18, 0x00, 0x00, 0x00, 0x00, 0xc7, 0x44, 0x18, 0x08, 0x00, 0x00, 0x40, 0x00}, 16, 14},
+ 		{"status", {0xc7, 0x44, 0x08, 0x08, 0x00, 0x00, 0x40, 0x00, 0xc7, 0x44, 0x08, 0x0c, 0x00, 0x18, 0x00, 0x00}, 16, 6},
+ 		{"sparse", {0x41, 0xb8, 0x00, 0x00, 0x40, 0x00, 0x44, 0x89, 0x44, 0x3e, 0x08}, 11, 4},
+@@ -887,8 +889,27 @@
+ // not from the device-id property. In the VM QEMU's x-pci-device-id faked it; on bare metal
+ // they see the real 1002:1681 and HWLibs rejects the device (ttl_initialize = 1, then the
+ // "Failed to send PPLIB IRI to Accelerator" panic). Report 73ff like the VM did.
+-static mach_vm_address_t orgPciRead16, orgPciRead32;
+-static bool gDevidLogged;
++static mach_vm_address_t orgPciRead8, orgPciRead16, orgPciRead32;
++static bool gDevidLogged, gRevisionLogged;
++
++// 24H32's TTL checks both device ID and PCI revision before software init. This RedmiBook
++// reports revision 02, absent from Navi 23's table; its c7 row has the same capability payload
++// as the other Navi 23 rows. Keep the existing identity consistent across config-read widths.
++static uint32_t rembrandtPciRevision(void *dev, uint64_t off, uint32_t value) {
++	if (off != kIOPCIConfigRevisionID || (value & 0xFF) != 0x02)
++		return value;
++	auto read16 = reinterpret_cast<uint16_t (*)(void *, uint64_t)>(orgPciRead16);
++	if (read16(dev, kIOPCIConfigVendorID) != 0x1002 || read16(dev, kIOPCIConfigDeviceID) != 0x1681)
++		return value;
++	if (!gRevisionLogged)
++		gRevisionLogged = true, LOG("pcidevid: PCI revision 02 -> c7");
++	return (value & ~0xFFU) | 0xC7;
++}
++
++static uint8_t wrapPciRead8(void *dev, uint64_t off) {
++	auto value = FunctionCast(wrapPciRead8, orgPciRead8)(dev, off);
++	return rembrandtPciRevision(dev, off, value);
++}
+ 
+ static uint16_t wrapPciRead16(void *dev, uint64_t off) {
+ 	auto v = FunctionCast(wrapPciRead16, orgPciRead16)(dev, off);
+@@ -897,7 +918,7 @@
+ 			gDevidLogged = true, LOG("pcidevid: config read16 1681 -> 73ff");
+ 		v = 0x73ff;
+ 	}
+-	return v;
++	return rembrandtPciRevision(dev, off, v);
+ }
+ 
+ static uint32_t wrapPciRead32(void *dev, uint64_t off) {
+@@ -907,7 +928,7 @@
+ 			gDevidLogged = true, LOG("pcidevid: config read32 16811002 -> 73ff1002");
+ 		v = 0x73ff1002;
+ 	}
+-	return v;
++	return rembrandtPciRevision(dev, off, v);
+ }
+ 
+ static void routePciDevid(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
+@@ -918,6 +939,7 @@
+ 	KernelPatcher::RouteRequest reqs[] {
+ 		{"__ZN11IOPCIDevice20extendedConfigRead16Ey", wrapPciRead16, orgPciRead16},
+ 		{"__ZN11IOPCIDevice20extendedConfigRead32Ey", wrapPciRead32, orgPciRead32},
++		{"__ZN11IOPCIDevice19extendedConfigRead8Ey", wrapPciRead8, orgPciRead8},
+ 	};
+ 	if (patcher.routeMultiple(index, reqs, arrsize(reqs), address, size))
+ 		LOG("pcidevid: IOPCIDevice config reads routed");
+@@ -963,7 +985,7 @@
+ 	bootargOff, arrsize(bootargOff),
+ 	bootargDebug, arrsize(bootargDebug),
+ 	bootargBeta, arrsize(bootargBeta),
+-	KernelVersion::BigSur,
+-	KernelVersion::Sequoia,
++	KernelVersion::Tahoe,
++	KernelVersion::Tahoe,
+ 	pluginStart
+ };
+--- a/src/RembrandtGfx/probe.cpp
++++ b/src/RembrandtGfx/probe.cpp
+@@ -4,8 +4,10 @@
+ //
+ 
+ #include "rmb.hpp"
++#include "vcn_vm.hpp"
+ #include <IOKit/IOLib.h>
+ #include <libkern/c++/OSObject.h>
++#include <sys/proc.h>
+ extern "C" unsigned int ml_phys_read_64(addr64_t paddr64);
+ 
+ volatile bool gKiqSleepSkip;
+@@ -17,6 +19,149 @@
+ 	orgAccelSubmitCommands;
+ 
+ uint64_t q(uint64_t obj, uint32_t off) { return *reinterpret_cast<uint64_t *>(obj + off); }
++
++mach_vm_address_t orgAllocateLargeBlocks, orgAllocPhysical;
++uint64_t allocationInspectLargeBlockCaller;
++constexpr uint64_t AllocationInspectMinimum = 16 * 1024 * 1024;
++constexpr uint32_t AllocationInspectLargeLimit = 64;
++constexpr uint32_t AllocationInspectPhysicalLimit = 8;
++uint32_t allocationInspectLargeLogs, allocationInspectPhysicalLogs;
++
++uint32_t allocationInspectSlot(uint32_t &counter) {
++	return __atomic_fetch_add(&counter, 1, __ATOMIC_RELAXED);
++}
++
++// Both native functions return in AL. Large-block args seven and eight are stack arguments.
++using FnAllocateLargeBlocks = bool (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, bool);
++using FnAllocPhysical = bool (*)(uint64_t);
++// AMDHWMemory::allocateNonContiguous(element, size, alignment, type, fixed, contiguous, block, originator,
++// operation). Type 0 is the CPU-visible lower range; the callee reads neither originator nor operation.
++using FnAllocateByType = bool (*)(uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, bool, bool, uint64_t, uint32_t, uint32_t);
++
++mach_vm_address_t allocateNonContiguousByType;
++bool allocationLowRetry;
++bool allocationCombinedRetry;
++constexpr uint32_t AllocationLowProcesses = 16, AllocationLowPerProcess = 8;
++struct { int pid; uint32_t events; } allocationLowSeen[AllocationLowProcesses];
++uint32_t allocationLowEvents, allocationLowSuccesses;
++
++struct FreeRange { uint64_t bytes, largest, usable; uint32_t blocks; };
++
++void countFree(FreeRange &range, uint64_t start, uint64_t end, uint64_t alignment, uint64_t block) {
++	if (end <= start)
++		return;
++	range.blocks++;
++	range.bytes += end - start;
++	if (end - start > range.largest)
++		range.largest = end - start;
++	auto aligned = alignment ? (start + alignment - 1) & ~(alignment - 1) : start;
++	if (end > aligned)
++		range.usable += (end - aligned) & ~(block - 1);
++}
++
++// IOAccelMemoryAllocator2 at hwmem +0x68 keeps its free-list head at +0x60. A free element links the next
++// free one at +0x10 and the next element by address at +0x00; that element's start at +0x20 ends the block.
++void freeByRange(uint64_t hw, uint64_t alignment, uint64_t block, FreeRange &low, FreeRange &high) {
++	auto lowStart = q(hw, 0x38), boundary = q(hw, 0x50) + q(hw, 0x48);
++	auto head = q(q(hw, 0x68), 0x60);
++	uint32_t visited = 0;
++	for (auto element = q(head, 0x10); element != head && visited < 65536; element = q(element, 0x10), visited++) {
++		auto start = q(element, 0x20), end = q(q(element, 0), 0x20);
++		countFree(low, start > lowStart ? start : lowStart, end < boundary ? end : boundary, alignment, block);
++		countFree(high, start > boundary ? start : boundary, end, alignment, block);
++	}
++}
++
++// The first events of each process and every power-of-two total, so one burst cannot hide later callers.
++bool allocationLowShouldLog(int pid, uint32_t total) {
++	if (!(total & (total - 1)))
++		return true;
++	for (auto &seen : allocationLowSeen) {
++		if (!seen.events)
++			seen.pid = pid;
++		if (seen.pid == pid)
++			return seen.events++ < AllocationLowPerProcess;
++	}
++	return false;
++}
++
++// After native large-block allocation fails, retry its split in the lower range. The optional combined
++// mode uses Apple's full range; the verified caller permits lower VRAM and uses fragment parsing.
++bool retryInFreeRanges(uint64_t self, uint64_t element, uint64_t size, uint64_t alignment, uint64_t block,
++	uint32_t originator, uint32_t operation) {
++	auto total = __atomic_add_fetch(&allocationLowEvents, 1, __ATOMIC_RELAXED);
++	auto pid = proc_selfpid();
++	bool log = allocationLowShouldLog(pid, total);
++	FreeRange low {}, high {};
++	if (log)
++		freeByRange(self, alignment, block, low, high);
++	auto rounded = (size + block - 1) & ~(block - 1);
++	auto retryType = allocationCombinedRetry ? 2u : 0u;
++	bool result = allocationLowRetry && reinterpret_cast<FnAllocateByType>(allocateNonContiguousByType)(
++		self, element, rounded, alignment, retryType, false, false, block, originator, operation);
++	auto successes = result ? __atomic_add_fetch(&allocationLowSuccesses, 1, __ATOMIC_RELAXED)
++		: __atomic_load_n(&allocationLowSuccesses, __ATOMIC_RELAXED);
++	if (log)
++		LOG("alloclow: event=%u pid=%d size=%llu rounded=%llu alignment=%llu block=%llu retry=%u type=%u result=%u successes=%u lowFree=%llu lowLargest=%llu lowUsable=%llu lowBlocks=%u highFree=%llu highLargest=%llu highUsable=%llu highBlocks=%u",
++			total, pid, size, rounded, alignment, block, static_cast<unsigned>(allocationLowRetry),
++			retryType, static_cast<unsigned>(result), successes, low.bytes, low.largest, low.usable, low.blocks,
++			high.bytes, high.largest, high.usable, high.blocks);
++	return result;
++}
++
++bool wrapAllocateLargeBlocks(uint64_t self, uint64_t element, uint64_t size, uint64_t alignment,
++	uint64_t block, uint32_t originator, uint32_t operation, bool skipFirstType0) {
++	auto caller = reinterpret_cast<uint64_t>(__builtin_return_address(0));
++	// The verified allocPhysical call passes &VidMemory::element at +0x118.
++	auto vid = caller == allocationInspectLargeBlockCaller ? element - 0x118 : 0;
++	auto flags = vid ? *reinterpret_cast<uint32_t *>(vid + 0x128) : 0;
++	auto flags138 = vid ? *reinterpret_cast<uint8_t *>(vid + 0x138) : 0;
++	auto result = reinterpret_cast<FnAllocateLargeBlocks>(orgAllocateLargeBlocks)(
++		self, element, size, alignment, block, originator, operation, skipFirstType0);
++	if (!result && size >= AllocationInspectMinimum) {
++		auto slot = allocationInspectSlot(allocationInspectLargeLogs);
++		if (slot < AllocationInspectLargeLimit)
++			LOG("allocinspect: large-fail seq=%u pid=%d thread=%llx hw=%llx element=%llx size=%llu alignment=%llu block=%llu origin=%u op=%u skipType0=%u total=%llu aperture=%llu failures=%llu lastFailedSize=%llu freeSnapshot=%llu fixedFreeSnapshot=%llu caller=%llx vid=%llx callerKnown=%u flags=%08x flags138=%02x",
++				slot, proc_selfpid(), reinterpret_cast<uint64_t>(current_thread()), self, element, size,
++				alignment, block, originator, operation, static_cast<unsigned>(skipFirstType0),
++				q(self, 0x40), q(self, 0x48), q(self, 0xd0), q(self, 0xe8), q(self, 0xf0), q(self, 0xf8), caller, vid,
++				static_cast<unsigned>(vid != 0), flags, static_cast<unsigned>(flags138));
++	}
++	// Same preconditions as the native split: a verified caller that allows the lower range, and a request
++	// larger than one power-of-two block.
++	if (result || !allocateNonContiguousByType || !vid || skipFirstType0 || size <= block || (block & (block - 1)))
++		return result;
++	return retryInFreeRanges(self, element, size, alignment, block, originator, operation);
++}
++
++bool wrapAllocPhysical(uint64_t self) {
++	auto size = q(self, 0x40);
++	uint64_t alignment = 0, hw = 0, elementBefore = 0;
++	uint32_t flags = 0, originator = 0, operation = 0;
++	uint8_t flags138 = 0;
++	if (size >= AllocationInspectMinimum) {
++		alignment = q(self, 0x120);
++		hw = q(self, 0x110);
++		elementBefore = q(self, 0x118);
++		flags = *reinterpret_cast<uint32_t *>(self + 0x128);
++		originator = *reinterpret_cast<uint32_t *>(self + 0x12c);
++		operation = *reinterpret_cast<uint32_t *>(self + 0x130);
++		flags138 = *reinterpret_cast<uint8_t *>(self + 0x138);
++	}
++	auto result = reinterpret_cast<FnAllocPhysical>(orgAllocPhysical)(self);
++	// An existing element returns false before native code attempts any allocation.
++	if (!result && size >= AllocationInspectMinimum && !elementBefore) {
++		auto slot = allocationInspectSlot(allocationInspectPhysicalLogs);
++		if (slot < AllocationInspectPhysicalLimit) {
++			auto elementAfter = q(self, 0x118);
++			LOG("allocinspect: physical-false seq=%u pid=%d thread=%llx vid=%llx hw=%llx element=%llx elementBefore=%llx elementAfter=%llx elementAfterPresent=%u size=%llu alignment=%llu flags=%08x flags138=%02x origin=%u op=%u",
++				slot, proc_selfpid(), reinterpret_cast<uint64_t>(current_thread()), self, hw, self + 0x118,
++				elementBefore, elementAfter, static_cast<unsigned>(elementAfter != 0), size, alignment,
++				flags, static_cast<unsigned>(flags138), originator, operation);
++		}
++	}
++	return result;
++}
+ 
+ // AmdAsicInfoNavi2: +0x120 RCC_CONFIG_MEMSIZE << 20, +0x128 CONFIG_APER_SIZE << 20,
+ // +0x12c CONFIG_REG_APER_SIZE.
+@@ -982,7 +1127,61 @@
+ 	return reinterpret_cast<uint64_t (*)(uint64_t, uint64_t)>(orgAccelSubmitCommands)(self, desc);
+ }
+ 
++static mach_vm_address_t orgVcnMmHub20, orgVcnMmHub202, orgVcnMmHub211;
++
++template <mach_vm_address_t *Original>
++bool wrapVcnVmRegisters(uint64_t self, uint32_t *registers) {
++	auto result = reinterpret_cast<bool (*)(uint64_t, uint32_t *)>(*Original)(self, registers);
++	if (result) {
++		VcnVmLayout layout {};
++		bool mapped = remapVcnVmRegisters(registers, VcnVmRegisterCount, &layout);
++		const char *hub = Original == &orgVcnMmHub211 ? "2.1.1" : (Original == &orgVcnMmHub202 ? "2.0.2" : "2.0.0");
++		LOG("vcnprep: accelerator MMHUB %s table %s: source base 0x%x, validated %lu/%lu", hub,
++			mapped ? "remapped to 2.3" : "layout mismatch; unchanged", layout.base,
++			static_cast<unsigned long>(layout.matched), static_cast<unsigned long>(VcnVmRegisterCount));
++		if (!mapped && layout.matched < VcnVmRegisterCount)
++			LOG("vcnprep: first mismatch field %lu: observed 0x%x, expected 0x%x",
++				static_cast<unsigned long>(layout.matched), registers[layout.matched],
++				layout.base + VcnVmRegisters[layout.matched].oldOffset);
++	}
++	return result;
++}
++
+ void probeRouteAccel(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++	if (getKernelVersion() == 25 && checkKernelArgument("-rmballocinspect")) {
++		allocationInspectLargeBlockCaller = address + 0x3a0e3;
++		KernelPatcher::RouteRequest allocation[] {
++			{"__ZN26AMDRadeonX6000_AMDHWMemory19allocateLargeBlocksEP16AMDMemoryElementyyy15_eOP_ORIGINATOR9_eOP_TYPEb",
++			 wrapAllocateLargeBlocks, orgAllocateLargeBlocks},
++			{"__ZN32AMDRadeonX6000_AMDAccelVidMemory13allocPhysicalEv", wrapAllocPhysical, orgAllocPhysical},
++		};
++		bool ok = patcher.routeMultiple(index, allocation, address, size);
++		LOG("allocinspect: hooks %s; minBytes=%llu largeLimit=%u physicalLimit=%u",
++			ok ? "installed" : "FAILED", AllocationInspectMinimum, AllocationInspectLargeLimit, AllocationInspectPhysicalLimit);
++		patcher.clearError();
++		allocateNonContiguousByType = patcher.solveSymbol(index,
++			"__ZN26AMDRadeonX6000_AMDHWMemory21allocateNonContiguousEP16AMDMemoryElementyy28_eAMD_MEMORY_ALLOCATION_TYPEbby15_eOP_ORIGINATOR9_eOP_TYPE",
++			address, size);
++		patcher.clearError();
++		allocationLowRetry = allocateNonContiguousByType && checkKernelArgument("-rmballoclow");
++		allocationCombinedRetry = allocationLowRetry && checkKernelArgument("-rmballocboth");
++		LOG("alloclow: free-range records %s; retry %s; type %u",
++			allocateNonContiguousByType ? "on" : "OFF (symbol missing)", allocationLowRetry ? "ON" : "off",
++			allocationCombinedRetry ? 2u : 0u);
++	}
++	if (vcnPrepOn()) {
++		KernelPatcher::RouteRequest vcn[] {
++			{"__ZN29AMDRadeonX6000_AMDMMHub_2_0_015fillVMRegistersEP25AMD_GFX10_VM_REGS_PER_HUB",
++			 wrapVcnVmRegisters<&orgVcnMmHub20>, orgVcnMmHub20},
++			{"__ZN29AMDRadeonX6000_AMDMMHub_2_0_215fillVMRegistersEP25AMD_GFX10_VM_REGS_PER_HUB",
++			 wrapVcnVmRegisters<&orgVcnMmHub202>, orgVcnMmHub202},
++			{"__ZN29AMDRadeonX6000_AMDMMHub_2_1_115fillVMRegistersEP25AMD_GFX10_VM_REGS_PER_HUB",
++			 wrapVcnVmRegisters<&orgVcnMmHub211>, orgVcnMmHub211},
++		};
++		bool ok = patcher.routeMultiple(index, vcn, address, size);
++		LOG("vcnprep: accelerator MMHUB hooks %s", ok ? "installed" : "FAILED");
++		patcher.clearError();
++	}
+ 	gAccelBase = address;
+ 	gKeepScanoutDcc = checkKernelArgument("-rmbscandcc");
+ 	gGetHWChannelEngineRing = patcher.solveSymbol(index,
+--- a/src/RembrandtGfx/rmb.hpp
++++ b/src/RembrandtGfx/rmb.hpp
+@@ -15,6 +15,9 @@
+ // -rmbverbose: bulk bring-up tracing (DAL log, DAL write log, DMUB ring dumps, register
+ // snapshots). Off by default: ~1 MB of synchronous serial printf slows the whole boot.
+ bool rmbVerbose();
++inline bool vcnPrepOn() {
++	return getKernelVersion() == 25 && checkKernelArgument("-rmbvcnprep");
++}
+ void safeModesLog();
+ // display.cpp: inject one DMUB inbox command (reply = slot contents after the fw consumed it); DAL link of the
+ // external DP/HDMI stream (0 = none).
+--- a/src/RembrandtGfx/smu.cpp
++++ b/src/RembrandtGfx/smu.cpp
+@@ -13,6 +13,10 @@
+ // MP1 mailbox (Linux smu_v13_0_set_smu_mailbox_registers): MP1 seg0 0x16000 + C2PMSG_66/82/90.
+ constexpr uint32_t MP1Base = 0x16000;
+ constexpr uint32_t RegMsg = MP1Base + 0x282, RegArg = MP1Base + 0x292, RegResp = MP1Base + 0x29a;
++IOLock *gMailboxLock;
++bool gVcnDpmEnabled;
++bool gVcnPowered;
++mach_vm_address_t orgPowerGateVcn;
+ 
+ enum : uint32_t {
+ 	PPSMC_MSG_TestMessage = 0x01,
+@@ -32,7 +36,7 @@
+ }
+ 
+ // Returns the PMFW response (1 = OK); the result argument is read back into arg.
+-uint32_t sendMsg(uint32_t msg, uint32_t &arg, int ms = 1000) {
++uint32_t sendMsgUnlocked(uint32_t msg, uint32_t &arg, int ms) {
+ 	uint32_t resp;
+ 	if (!waitResp(resp)) {
+ 		LOG("smu: mailbox busy before msg %#x", msg);
+@@ -47,6 +51,61 @@
+ 	}
+ 	arg = mmioRead(RegArg);
+ 	return resp;
++}
++
++uint32_t sendMsg(uint32_t msg, uint32_t &arg, int ms = 1000) {
++	if (!vcnPrepOn())
++		return sendMsgUnlocked(msg, arg, ms);
++	if (!gMailboxLock)
++		return 0;
++	// PowerPlay requests and the shutdown reset share one SMU request/response mailbox.
++	IOLockLock(gMailboxLock);
++	auto result = sendMsgUnlocked(msg, arg, ms);
++	IOLockUnlock(gMailboxLock);
++	return result;
++}
++
++uint32_t nativePowerGateVcn(uint64_t self, uint32_t gate, uint32_t instance) {
++	auto result = reinterpret_cast<uint32_t (*)(uint64_t, uint32_t, uint32_t)>(orgPowerGateVcn)(self, gate, instance);
++	LOG("vcnpath: native power gate %u instance %u returned PP_Result %u", gate, instance, result);
++	return result;
++}
++
++uint32_t wrapPowerGateVcn(uint64_t self, uint32_t gate, uint32_t instance) {
++	// PSM_ReArbit gates VCN1 separately. Its request must not power down Rembrandt's VCN0.
++	if (gate > 1 || instance != 0)
++		return nativePowerGateVcn(self, gate, instance);
++	if (!gMailboxLock)
++		return 2;
++	IOLockLock(gMailboxLock);
++	// 25G332 gates twice during initialization, before VCN is used. The earlier shim sent
++	// PowerDownVcn here and wedged the mailbox. Keep Apple's path until we have powered VCN up.
++	if (gate && !gVcnPowered) {
++		IOLockUnlock(gMailboxLock);
++		return nativePowerGateVcn(self, gate, instance);
++	}
++	if ((!gate && gVcnPowered) || !gVcnDpmEnabled) {
++		auto result = gVcnDpmEnabled ? 1u : 2u;
++		IOLockUnlock(gMailboxLock);
++		LOG("vcnpath: power gate %u instance %u, current powered %u, DPM enabled %u, PP_Result %u",
++		    gate, instance, gVcnPowered, gVcnDpmEnabled, result);
++		return result;
++	}
++	uint32_t arg = 0;
++	auto response = sendMsgUnlocked(gate ? 0x06 : 0x07, arg, 1000);
++	if (response == 1)
++		gVcnPowered = !gate;
++	IOLockUnlock(gMailboxLock);
++	LOG("vcnpath: power %s instance %u, SMU response %u", gate ? "down" : "up", instance, response);
++	return response == 1 ? 1 : 2;
++}
++
++void inspectVcnFeature() {
++	uint32_t features = 0;
++	auto response = sendMsg(0x12, features);
++	gVcnDpmEnabled = response == 1 && (features & (1u << 11));
++	LOG("vcnpath: GetEnabledSmuFeatures response %u, low mask %#x, VCN DPM bit11 %u",
++	    response, features, gVcnDpmEnabled);
+ }
+ 
+ uint8_t gContext[0x100];  // opaque handle handed back to TTL
+@@ -72,6 +131,11 @@
+ static_assert(arrsize(ops) == OpCount, "one stub per op");
+ 
+ uint64_t smuSwInit(uint64_t in, uint64_t out, uint64_t, uint64_t, uint64_t, uint64_t) {
++	if (vcnPrepOn() && !gMailboxLock) {
++		gMailboxLock = IOLockAlloc();
++		if (!gMailboxLock)
++			return 1;
++	}
+ 	auto i = reinterpret_cast<uint32_t *>(in);
+ 	auto o = reinterpret_cast<uint8_t *>(out);
+ 	if (!i || !o || i[0] != 0x2c0 || *reinterpret_cast<uint32_t *>(o) != 0x50) {
+@@ -110,6 +174,8 @@
+ 	// Keep GFX powered while the PSP/RLC/GC bring-up below us pokes its registers.
+ 	uint32_t arg = 0;
+ 	LOG("smu_hw_init: DisallowGfxOff resp %u", sendMsg(PPSMC_MSG_DisallowGfxOff, arg));
++	if (vcnPrepOn())
++		inspectVcnFeature();
+ 	applyGcGolden();
+ 	startGoldenGuard();
+ 	dmubPollerStart();
+@@ -165,6 +231,12 @@
+ }
+ 
+ void smuRoute(KernelPatcher &patcher, size_t index, mach_vm_address_t address, size_t size) {
++	if (vcnPrepOn()) {
++		KernelPatcher::RouteRequest vcn {"_Phw_SwSmu_PowerGateVcn", wrapPowerGateVcn, orgPowerGateVcn};
++		bool ok = patcher.routeMultiple(index, &vcn, 1, address, size);
++		LOG("vcnprep: SMU power hook %s", ok ? "installed" : "FAILED");
++		patcher.clearError();
++	}
+ 	KernelPatcher::RouteRequest requests[] {
+ 		{"_smu_sw_init", smuSwInit},
+ 		{"_smu_hw_init", smuHwInit},
+--- /dev/null
++++ b/src/RembrandtGfx/test_vcn_vm.cpp
+@@ -0,0 +1,34 @@
++#include <cstdint>
++#include <cstddef>
++#include <cassert>
++#include <cstdio>
++#include <cstring>
++#include <initializer_list>
++#include "vcn_vm.hpp"
++
++int main() {
++    struct { uint32_t before, registers[214], after; } table;
++    for (uint32_t base : {0u, 0x1a000u, 0x1b000u}) {
++        table.before = table.after = 0x12345678;
++        for (size_t i = 0; i < 214; i++)
++            table.registers[i] = base + VcnVmRegisters[i].oldOffset;
++        VcnVmLayout layout {};
++        assert(remapVcnVmRegisters(table.registers, 214, &layout));
++        assert(layout.base == base && layout.matched == 214);
++        assert(table.before == 0x12345678 && table.after == 0x12345678);
++        assert(table.registers[12 + 2 * 7] == 0x1a950); // Context 2 base low.
++        assert(table.registers[12 + 16 * 7 + 6 * 5 + 2] == 0x1aa31); // Engine 6 request.
++        assert(table.registers[12 + 16 * 7 + 6 * 5 + 3] == 0x1aa32); // Engine 6 ack.
++    }
++    for (size_t i = 0; i < 214; i++)
++        table.registers[i] = 0x1a000 + VcnVmRegisters[i].oldOffset;
++    table.registers[26] ^= 1;
++    auto copy = table;
++    VcnVmLayout layout {};
++    assert(!remapVcnVmRegisters(table.registers, 214, &layout));
++    assert(layout.base == 0x1a000 && layout.matched == 26);
++    assert(!memcmp(&table, &copy, sizeof(table)));
++    assert(!remapVcnVmRegisters(table.registers, 213));
++    assert(!remapVcnVmRegisters(nullptr, 214));
++    puts("PASS: actual remapper; complete table, three bases, layout diagnostics, context2/engine6, bounds and mismatch refusal.");
++}
+--- a/src/RembrandtGfx/umdpatch.cpp
++++ b/src/RembrandtGfx/umdpatch.cpp
+@@ -11,6 +11,7 @@
+ #include <Headers/kern_api.hpp>
+ #include <Headers/kern_mach.hpp>
+ #include "rmb.hpp"
++#include "command_staging.hpp"
+ 
+ namespace {
+ 
+@@ -24,23 +25,46 @@
+ mach_vm_address_t orgCsValidateRange;
+ mach_vm_address_t orgCsValidatePage;
+ uint32_t gXorPatched;
++uint32_t gCommandPatched;
++bool gCommandStaging;
++
++bool writeCode(uint8_t *at, const uint8_t *code, size_t size) {
++	if (MachInfo::setKernelWriting(true, KernelPatcher::kernelWriteLock) != KERN_SUCCESS) {
++		LOG("umd: no write access for code patch");
++		return false;
++	}
++	memcpy(at, code, size);
++	MachInfo::setKernelWriting(false, KernelPatcher::kernelWriteLock);
++	return true;
++}
+ 
+ void writeRep(uint8_t *at, const char *how, size_t off) {
+-	if (MachInfo::setKernelWriting(true, KernelPatcher::kernelWriteLock) != KERN_SUCCESS) {
+-		LOG("umd: no write access for pipeBankXor patch");
++	if (!writeCode(at, xorRep, sizeof(xorRep)))
+ 		return;
+-	}
+-	memcpy(at, xorRep, sizeof(xorRep));
+-	MachInfo::setKernelWriting(false, KernelPatcher::kernelWriteLock);
+ 	if (++gXorPatched <= 4)
+ 		LOG("umd: HwlComputePipeBankXor patched -> pipeBankXor 0 (%s, page off 0x%lx, #%u)", how,
+ 		    (unsigned long)off, gXorPatched);
++}
++
++void patchCommandStaging(uint8_t *data, size_t size) {
++	using namespace RmbCommandStaging;
++	if (!gCommandStaging || size < sizeof(original))
++		return;
++	// Matching the complete native body limits this to the validated driver function.
++	for (size_t off = 0, end = size - sizeof(original); off <= end; off++) {
++		if (data[off] != original[0] || memcmp(data + off, original, sizeof(original)))
++			continue;
++		if (writeCode(data + off, replacement, sizeof(replacement)) && ++gCommandPatched <= 4)
++			LOG("umd: render command staging patched (page off 0x%lx, bytes %zu, #%u)",
++			    (unsigned long)off, sizeof(replacement), gCommandPatched);
++	}
+ }
+ 
+ void patchPage(const void *data, size_t size) {
+ 	auto p = static_cast<uint8_t *>(const_cast<void *>(data));
+ 	if (!p || size < sizeof(xorPat))
+ 		return;
++	patchCommandStaging(p, size);
+ 	// 15.0 UMD: the pattern sits at page offset 0xbfc, i.e. it straddles a 4K page boundary and each
+ 	// page is validated alone → match the pattern's tail at the start of the range (k cut bytes, the
+ 	// replaced bytes are all in this page while k <= xorRepOff; every such tail is unique in the UMD).
+@@ -79,6 +103,7 @@
+ void umdRoute(KernelPatcher &patcher) {
+ 	if (checkKernelArgument("-rmbnoxor0"))
+ 		return;
++	gCommandStaging = checkKernelArgument("-rmbcmdstaging");
+ 	KernelPatcher::RouteRequest req[] {
+ 		{"_cs_validate_page", wrapCsValidatePage, orgCsValidatePage},
+ 		{"_cs_validate_range", wrapCsValidateRange, orgCsValidateRange},
+@@ -87,5 +112,7 @@
+ 		LOG("umd: failed to route cs_validate_page/range (err %d)", patcher.getError());
+ 	else
+ 		LOG("umd: pipeBankXor 0 page patch installed (cs_validate_page + range)");
++	if (gCommandStaging)
++		LOG("umd: render command staging page patch enabled");
+ 	patcher.clearError();
+ }
+--- /dev/null
++++ b/src/RembrandtGfx/vcn_vm.hpp
+@@ -0,0 +1,23 @@
++#pragma once
++#include "vcn_vm_table.hpp"
++
++struct VcnVmLayout { uint32_t base; size_t matched; };
++
++inline bool remapVcnVmRegisters(uint32_t *registers, size_t count, VcnVmLayout *layout = nullptr) {
++    if (layout)
++        *layout = {};
++    if (!registers || count != VcnVmRegisterCount)
++        return false;
++    const uint32_t base = registers[0] - VcnVmRegisters[0].oldOffset;
++    // Apple queries the source base from hardware; validate its complete layout.
++    size_t matched = 0;
++    while (matched < count && registers[matched] == base + VcnVmRegisters[matched].oldOffset)
++        matched++;
++    if (layout)
++        *layout = {base, matched};
++    if (matched != count)
++        return false;
++    for (size_t i = 0; i < count; i++)
++        registers[i] = 0x1a000 + VcnVmRegisters[i].newOffset;
++    return true;
++}
+--- /dev/null
++++ b/src/RembrandtGfx/vcn_vm_table.hpp
+@@ -0,0 +1,241 @@
++/*
++ * Copyright (C) 2020  Advanced Micro Devices, Inc.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included
++ * in all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++ * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
++ * AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
++ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++ */
++
++#pragma once
++// Generated by generate_vcn_vm_table.py; do not edit.
++struct VcnVmRegister { uint32_t oldOffset, newOffset; };
++static constexpr VcnVmRegister VcnVmRegisters[] {
++    {0x873, 0x8f3}, // mmMMMC_VM_MX_L1_TLB_CNTL
++    {0x680, 0x700}, // mmMMVM_L2_CNTL
++    {0x681, 0x701}, // mmMMVM_L2_CNTL2
++    {0x682, 0x702}, // mmMMVM_L2_CNTL3
++    {0x698, 0x718}, // mmMMVM_L2_CNTL4
++    {0x688, 0x708}, // mmMMVM_L2_PROTECTION_FAULT_CNTL
++    {0x689, 0x709}, // mmMMVM_L2_PROTECTION_FAULT_CNTL2
++    {0x68a, 0x70a}, // mmMMVM_L2_PROTECTION_FAULT_MM_CNTL3
++    {0x68b, 0x70b}, // mmMMVM_L2_PROTECTION_FAULT_MM_CNTL4
++    {0x68c, 0x70c}, // mmMMVM_L2_PROTECTION_FAULT_STATUS
++    {0x68d, 0x70d}, // mmMMVM_L2_PROTECTION_FAULT_ADDR_LO32
++    {0x68e, 0x70e}, // mmMMVM_L2_PROTECTION_FAULT_ADDR_HI32
++    {0x72b, 0x940}, // mmMMVM_CONTEXT0_PAGE_TABLE_BASE_ADDR_LO32
++    {0x72c, 0x941}, // mmMMVM_CONTEXT0_PAGE_TABLE_BASE_ADDR_HI32
++    {0x74b, 0x942}, // mmMMVM_CONTEXT0_PAGE_TABLE_START_ADDR_LO32
++    {0x74c, 0x943}, // mmMMVM_CONTEXT0_PAGE_TABLE_START_ADDR_HI32
++    {0x76b, 0x944}, // mmMMVM_CONTEXT0_PAGE_TABLE_END_ADDR_LO32
++    {0x76c, 0x945}, // mmMMVM_CONTEXT0_PAGE_TABLE_END_ADDR_HI32
++    {0x6c0, 0x740}, // mmMMVM_CONTEXT0_CNTL
++    {0x72d, 0x948}, // mmMMVM_CONTEXT1_PAGE_TABLE_BASE_ADDR_LO32
++    {0x72e, 0x949}, // mmMMVM_CONTEXT1_PAGE_TABLE_BASE_ADDR_HI32
++    {0x74d, 0x94a}, // mmMMVM_CONTEXT1_PAGE_TABLE_START_ADDR_LO32
++    {0x74e, 0x94b}, // mmMMVM_CONTEXT1_PAGE_TABLE_START_ADDR_HI32
++    {0x76d, 0x94c}, // mmMMVM_CONTEXT1_PAGE_TABLE_END_ADDR_LO32
++    {0x76e, 0x94d}, // mmMMVM_CONTEXT1_PAGE_TABLE_END_ADDR_HI32
++    {0x6c1, 0x741}, // mmMMVM_CONTEXT1_CNTL
++    {0x72f, 0x950}, // mmMMVM_CONTEXT2_PAGE_TABLE_BASE_ADDR_LO32
++    {0x730, 0x951}, // mmMMVM_CONTEXT2_PAGE_TABLE_BASE_ADDR_HI32
++    {0x74f, 0x952}, // mmMMVM_CONTEXT2_PAGE_TABLE_START_ADDR_LO32
++    {0x750, 0x953}, // mmMMVM_CONTEXT2_PAGE_TABLE_START_ADDR_HI32
++    {0x76f, 0x954}, // mmMMVM_CONTEXT2_PAGE_TABLE_END_ADDR_LO32
++    {0x770, 0x955}, // mmMMVM_CONTEXT2_PAGE_TABLE_END_ADDR_HI32
++    {0x6c2, 0x742}, // mmMMVM_CONTEXT2_CNTL
++    {0x731, 0x958}, // mmMMVM_CONTEXT3_PAGE_TABLE_BASE_ADDR_LO32
++    {0x732, 0x959}, // mmMMVM_CONTEXT3_PAGE_TABLE_BASE_ADDR_HI32
++    {0x751, 0x95a}, // mmMMVM_CONTEXT3_PAGE_TABLE_START_ADDR_LO32
++    {0x752, 0x95b}, // mmMMVM_CONTEXT3_PAGE_TABLE_START_ADDR_HI32
++    {0x771, 0x95c}, // mmMMVM_CONTEXT3_PAGE_TABLE_END_ADDR_LO32
++    {0x772, 0x95d}, // mmMMVM_CONTEXT3_PAGE_TABLE_END_ADDR_HI32
++    {0x6c3, 0x743}, // mmMMVM_CONTEXT3_CNTL
++    {0x733, 0x960}, // mmMMVM_CONTEXT4_PAGE_TABLE_BASE_ADDR_LO32
++    {0x734, 0x961}, // mmMMVM_CONTEXT4_PAGE_TABLE_BASE_ADDR_HI32
++    {0x753, 0x962}, // mmMMVM_CONTEXT4_PAGE_TABLE_START_ADDR_LO32
++    {0x754, 0x963}, // mmMMVM_CONTEXT4_PAGE_TABLE_START_ADDR_HI32
++    {0x773, 0x964}, // mmMMVM_CONTEXT4_PAGE_TABLE_END_ADDR_LO32
++    {0x774, 0x965}, // mmMMVM_CONTEXT4_PAGE_TABLE_END_ADDR_HI32
++    {0x6c4, 0x744}, // mmMMVM_CONTEXT4_CNTL
++    {0x735, 0x968}, // mmMMVM_CONTEXT5_PAGE_TABLE_BASE_ADDR_LO32
++    {0x736, 0x969}, // mmMMVM_CONTEXT5_PAGE_TABLE_BASE_ADDR_HI32
++    {0x755, 0x96a}, // mmMMVM_CONTEXT5_PAGE_TABLE_START_ADDR_LO32
++    {0x756, 0x96b}, // mmMMVM_CONTEXT5_PAGE_TABLE_START_ADDR_HI32
++    {0x775, 0x96c}, // mmMMVM_CONTEXT5_PAGE_TABLE_END_ADDR_LO32
++    {0x776, 0x96d}, // mmMMVM_CONTEXT5_PAGE_TABLE_END_ADDR_HI32
++    {0x6c5, 0x745}, // mmMMVM_CONTEXT5_CNTL
++    {0x737, 0x970}, // mmMMVM_CONTEXT6_PAGE_TABLE_BASE_ADDR_LO32
++    {0x738, 0x971}, // mmMMVM_CONTEXT6_PAGE_TABLE_BASE_ADDR_HI32
++    {0x757, 0x972}, // mmMMVM_CONTEXT6_PAGE_TABLE_START_ADDR_LO32
++    {0x758, 0x973}, // mmMMVM_CONTEXT6_PAGE_TABLE_START_ADDR_HI32
++    {0x777, 0x974}, // mmMMVM_CONTEXT6_PAGE_TABLE_END_ADDR_LO32
++    {0x778, 0x975}, // mmMMVM_CONTEXT6_PAGE_TABLE_END_ADDR_HI32
++    {0x6c6, 0x746}, // mmMMVM_CONTEXT6_CNTL
++    {0x739, 0x978}, // mmMMVM_CONTEXT7_PAGE_TABLE_BASE_ADDR_LO32
++    {0x73a, 0x979}, // mmMMVM_CONTEXT7_PAGE_TABLE_BASE_ADDR_HI32
++    {0x759, 0x97a}, // mmMMVM_CONTEXT7_PAGE_TABLE_START_ADDR_LO32
++    {0x75a, 0x97b}, // mmMMVM_CONTEXT7_PAGE_TABLE_START_ADDR_HI32
++    {0x779, 0x97c}, // mmMMVM_CONTEXT7_PAGE_TABLE_END_ADDR_LO32
++    {0x77a, 0x97d}, // mmMMVM_CONTEXT7_PAGE_TABLE_END_ADDR_HI32
++    {0x6c7, 0x747}, // mmMMVM_CONTEXT7_CNTL
++    {0x73b, 0x980}, // mmMMVM_CONTEXT8_PAGE_TABLE_BASE_ADDR_LO32
++    {0x73c, 0x981}, // mmMMVM_CONTEXT8_PAGE_TABLE_BASE_ADDR_HI32
++    {0x75b, 0x982}, // mmMMVM_CONTEXT8_PAGE_TABLE_START_ADDR_LO32
++    {0x75c, 0x983}, // mmMMVM_CONTEXT8_PAGE_TABLE_START_ADDR_HI32
++    {0x77b, 0x984}, // mmMMVM_CONTEXT8_PAGE_TABLE_END_ADDR_LO32
++    {0x77c, 0x985}, // mmMMVM_CONTEXT8_PAGE_TABLE_END_ADDR_HI32
++    {0x6c8, 0x748}, // mmMMVM_CONTEXT8_CNTL
++    {0x73d, 0x988}, // mmMMVM_CONTEXT9_PAGE_TABLE_BASE_ADDR_LO32
++    {0x73e, 0x989}, // mmMMVM_CONTEXT9_PAGE_TABLE_BASE_ADDR_HI32
++    {0x75d, 0x98a}, // mmMMVM_CONTEXT9_PAGE_TABLE_START_ADDR_LO32
++    {0x75e, 0x98b}, // mmMMVM_CONTEXT9_PAGE_TABLE_START_ADDR_HI32
++    {0x77d, 0x98c}, // mmMMVM_CONTEXT9_PAGE_TABLE_END_ADDR_LO32
++    {0x77e, 0x98d}, // mmMMVM_CONTEXT9_PAGE_TABLE_END_ADDR_HI32
++    {0x6c9, 0x749}, // mmMMVM_CONTEXT9_CNTL
++    {0x73f, 0x990}, // mmMMVM_CONTEXT10_PAGE_TABLE_BASE_ADDR_LO32
++    {0x740, 0x991}, // mmMMVM_CONTEXT10_PAGE_TABLE_BASE_ADDR_HI32
++    {0x75f, 0x992}, // mmMMVM_CONTEXT10_PAGE_TABLE_START_ADDR_LO32
++    {0x760, 0x993}, // mmMMVM_CONTEXT10_PAGE_TABLE_START_ADDR_HI32
++    {0x77f, 0x994}, // mmMMVM_CONTEXT10_PAGE_TABLE_END_ADDR_LO32
++    {0x780, 0x995}, // mmMMVM_CONTEXT10_PAGE_TABLE_END_ADDR_HI32
++    {0x6ca, 0x74a}, // mmMMVM_CONTEXT10_CNTL
++    {0x741, 0x998}, // mmMMVM_CONTEXT11_PAGE_TABLE_BASE_ADDR_LO32
++    {0x742, 0x999}, // mmMMVM_CONTEXT11_PAGE_TABLE_BASE_ADDR_HI32
++    {0x761, 0x99a}, // mmMMVM_CONTEXT11_PAGE_TABLE_START_ADDR_LO32
++    {0x762, 0x99b}, // mmMMVM_CONTEXT11_PAGE_TABLE_START_ADDR_HI32
++    {0x781, 0x99c}, // mmMMVM_CONTEXT11_PAGE_TABLE_END_ADDR_LO32
++    {0x782, 0x99d}, // mmMMVM_CONTEXT11_PAGE_TABLE_END_ADDR_HI32
++    {0x6cb, 0x74b}, // mmMMVM_CONTEXT11_CNTL
++    {0x743, 0x9a0}, // mmMMVM_CONTEXT12_PAGE_TABLE_BASE_ADDR_LO32
++    {0x744, 0x9a1}, // mmMMVM_CONTEXT12_PAGE_TABLE_BASE_ADDR_HI32
++    {0x763, 0x9a2}, // mmMMVM_CONTEXT12_PAGE_TABLE_START_ADDR_LO32
++    {0x764, 0x9a3}, // mmMMVM_CONTEXT12_PAGE_TABLE_START_ADDR_HI32
++    {0x783, 0x9a4}, // mmMMVM_CONTEXT12_PAGE_TABLE_END_ADDR_LO32
++    {0x784, 0x9a5}, // mmMMVM_CONTEXT12_PAGE_TABLE_END_ADDR_HI32
++    {0x6cc, 0x74c}, // mmMMVM_CONTEXT12_CNTL
++    {0x745, 0x9a8}, // mmMMVM_CONTEXT13_PAGE_TABLE_BASE_ADDR_LO32
++    {0x746, 0x9a9}, // mmMMVM_CONTEXT13_PAGE_TABLE_BASE_ADDR_HI32
++    {0x765, 0x9aa}, // mmMMVM_CONTEXT13_PAGE_TABLE_START_ADDR_LO32
++    {0x766, 0x9ab}, // mmMMVM_CONTEXT13_PAGE_TABLE_START_ADDR_HI32
++    {0x785, 0x9ac}, // mmMMVM_CONTEXT13_PAGE_TABLE_END_ADDR_LO32
++    {0x786, 0x9ad}, // mmMMVM_CONTEXT13_PAGE_TABLE_END_ADDR_HI32
++    {0x6cd, 0x74d}, // mmMMVM_CONTEXT13_CNTL
++    {0x747, 0x9b0}, // mmMMVM_CONTEXT14_PAGE_TABLE_BASE_ADDR_LO32
++    {0x748, 0x9b1}, // mmMMVM_CONTEXT14_PAGE_TABLE_BASE_ADDR_HI32
++    {0x767, 0x9b2}, // mmMMVM_CONTEXT14_PAGE_TABLE_START_ADDR_LO32
++    {0x768, 0x9b3}, // mmMMVM_CONTEXT14_PAGE_TABLE_START_ADDR_HI32
++    {0x787, 0x9b4}, // mmMMVM_CONTEXT14_PAGE_TABLE_END_ADDR_LO32
++    {0x788, 0x9b5}, // mmMMVM_CONTEXT14_PAGE_TABLE_END_ADDR_HI32
++    {0x6ce, 0x74e}, // mmMMVM_CONTEXT14_CNTL
++    {0x749, 0x9b8}, // mmMMVM_CONTEXT15_PAGE_TABLE_BASE_ADDR_LO32
++    {0x74a, 0x9b9}, // mmMMVM_CONTEXT15_PAGE_TABLE_BASE_ADDR_HI32
++    {0x769, 0x9ba}, // mmMMVM_CONTEXT15_PAGE_TABLE_START_ADDR_LO32
++    {0x76a, 0x9bb}, // mmMMVM_CONTEXT15_PAGE_TABLE_START_ADDR_HI32
++    {0x789, 0x9bc}, // mmMMVM_CONTEXT15_PAGE_TABLE_END_ADDR_LO32
++    {0x78a, 0x9bd}, // mmMMVM_CONTEXT15_PAGE_TABLE_END_ADDR_HI32
++    {0x6cf, 0x74f}, // mmMMVM_CONTEXT15_CNTL
++    {0x707, 0xa03}, // mmMMVM_INVALIDATE_ENG0_ADDR_RANGE_LO32
++    {0x708, 0xa04}, // mmMMVM_INVALIDATE_ENG0_ADDR_RANGE_HI32
++    {0x6e3, 0xa01}, // mmMMVM_INVALIDATE_ENG0_REQ
++    {0x6f5, 0xa02}, // mmMMVM_INVALIDATE_ENG0_ACK
++    {0x6d1, 0xa00}, // mmMMVM_INVALIDATE_ENG0_SEM
++    {0x709, 0xa0b}, // mmMMVM_INVALIDATE_ENG1_ADDR_RANGE_LO32
++    {0x70a, 0xa0c}, // mmMMVM_INVALIDATE_ENG1_ADDR_RANGE_HI32
++    {0x6e4, 0xa09}, // mmMMVM_INVALIDATE_ENG1_REQ
++    {0x6f6, 0xa0a}, // mmMMVM_INVALIDATE_ENG1_ACK
++    {0x6d2, 0xa08}, // mmMMVM_INVALIDATE_ENG1_SEM
++    {0x70b, 0xa13}, // mmMMVM_INVALIDATE_ENG2_ADDR_RANGE_LO32
++    {0x70c, 0xa14}, // mmMMVM_INVALIDATE_ENG2_ADDR_RANGE_HI32
++    {0x6e5, 0xa11}, // mmMMVM_INVALIDATE_ENG2_REQ
++    {0x6f7, 0xa12}, // mmMMVM_INVALIDATE_ENG2_ACK
++    {0x6d3, 0xa10}, // mmMMVM_INVALIDATE_ENG2_SEM
++    {0x70d, 0xa1b}, // mmMMVM_INVALIDATE_ENG3_ADDR_RANGE_LO32
++    {0x70e, 0xa1c}, // mmMMVM_INVALIDATE_ENG3_ADDR_RANGE_HI32
++    {0x6e6, 0xa19}, // mmMMVM_INVALIDATE_ENG3_REQ
++    {0x6f8, 0xa1a}, // mmMMVM_INVALIDATE_ENG3_ACK
++    {0x6d4, 0xa18}, // mmMMVM_INVALIDATE_ENG3_SEM
++    {0x70f, 0xa23}, // mmMMVM_INVALIDATE_ENG4_ADDR_RANGE_LO32
++    {0x710, 0xa24}, // mmMMVM_INVALIDATE_ENG4_ADDR_RANGE_HI32
++    {0x6e7, 0xa21}, // mmMMVM_INVALIDATE_ENG4_REQ
++    {0x6f9, 0xa22}, // mmMMVM_INVALIDATE_ENG4_ACK
++    {0x6d5, 0xa20}, // mmMMVM_INVALIDATE_ENG4_SEM
++    {0x711, 0xa2b}, // mmMMVM_INVALIDATE_ENG5_ADDR_RANGE_LO32
++    {0x712, 0xa2c}, // mmMMVM_INVALIDATE_ENG5_ADDR_RANGE_HI32
++    {0x6e8, 0xa29}, // mmMMVM_INVALIDATE_ENG5_REQ
++    {0x6fa, 0xa2a}, // mmMMVM_INVALIDATE_ENG5_ACK
++    {0x6d6, 0xa28}, // mmMMVM_INVALIDATE_ENG5_SEM
++    {0x713, 0xa33}, // mmMMVM_INVALIDATE_ENG6_ADDR_RANGE_LO32
++    {0x714, 0xa34}, // mmMMVM_INVALIDATE_ENG6_ADDR_RANGE_HI32
++    {0x6e9, 0xa31}, // mmMMVM_INVALIDATE_ENG6_REQ
++    {0x6fb, 0xa32}, // mmMMVM_INVALIDATE_ENG6_ACK
++    {0x6d7, 0xa30}, // mmMMVM_INVALIDATE_ENG6_SEM
++    {0x715, 0xa3b}, // mmMMVM_INVALIDATE_ENG7_ADDR_RANGE_LO32
++    {0x716, 0xa3c}, // mmMMVM_INVALIDATE_ENG7_ADDR_RANGE_HI32
++    {0x6ea, 0xa39}, // mmMMVM_INVALIDATE_ENG7_REQ
++    {0x6fc, 0xa3a}, // mmMMVM_INVALIDATE_ENG7_ACK
++    {0x6d8, 0xa38}, // mmMMVM_INVALIDATE_ENG7_SEM
++    {0x717, 0xa43}, // mmMMVM_INVALIDATE_ENG8_ADDR_RANGE_LO32
++    {0x718, 0xa44}, // mmMMVM_INVALIDATE_ENG8_ADDR_RANGE_HI32
++    {0x6eb, 0xa41}, // mmMMVM_INVALIDATE_ENG8_REQ
++    {0x6fd, 0xa42}, // mmMMVM_INVALIDATE_ENG8_ACK
++    {0x6d9, 0xa40}, // mmMMVM_INVALIDATE_ENG8_SEM
++    {0x719, 0xa4b}, // mmMMVM_INVALIDATE_ENG9_ADDR_RANGE_LO32
++    {0x71a, 0xa4c}, // mmMMVM_INVALIDATE_ENG9_ADDR_RANGE_HI32
++    {0x6ec, 0xa49}, // mmMMVM_INVALIDATE_ENG9_REQ
++    {0x6fe, 0xa4a}, // mmMMVM_INVALIDATE_ENG9_ACK
++    {0x6da, 0xa48}, // mmMMVM_INVALIDATE_ENG9_SEM
++    {0x71b, 0xa53}, // mmMMVM_INVALIDATE_ENG10_ADDR_RANGE_LO32
++    {0x71c, 0xa54}, // mmMMVM_INVALIDATE_ENG10_ADDR_RANGE_HI32
++    {0x6ed, 0xa51}, // mmMMVM_INVALIDATE_ENG10_REQ
++    {0x6ff, 0xa52}, // mmMMVM_INVALIDATE_ENG10_ACK
++    {0x6db, 0xa50}, // mmMMVM_INVALIDATE_ENG10_SEM
++    {0x71d, 0xa5b}, // mmMMVM_INVALIDATE_ENG11_ADDR_RANGE_LO32
++    {0x71e, 0xa5c}, // mmMMVM_INVALIDATE_ENG11_ADDR_RANGE_HI32
++    {0x6ee, 0xa59}, // mmMMVM_INVALIDATE_ENG11_REQ
++    {0x700, 0xa5a}, // mmMMVM_INVALIDATE_ENG11_ACK
++    {0x6dc, 0xa58}, // mmMMVM_INVALIDATE_ENG11_SEM
++    {0x71f, 0xa63}, // mmMMVM_INVALIDATE_ENG12_ADDR_RANGE_LO32
++    {0x720, 0xa64}, // mmMMVM_INVALIDATE_ENG12_ADDR_RANGE_HI32
++    {0x6ef, 0xa61}, // mmMMVM_INVALIDATE_ENG12_REQ
++    {0x701, 0xa62}, // mmMMVM_INVALIDATE_ENG12_ACK
++    {0x6dd, 0xa60}, // mmMMVM_INVALIDATE_ENG12_SEM
++    {0x721, 0xa6b}, // mmMMVM_INVALIDATE_ENG13_ADDR_RANGE_LO32
++    {0x722, 0xa6c}, // mmMMVM_INVALIDATE_ENG13_ADDR_RANGE_HI32
++    {0x6f0, 0xa69}, // mmMMVM_INVALIDATE_ENG13_REQ
++    {0x702, 0xa6a}, // mmMMVM_INVALIDATE_ENG13_ACK
++    {0x6de, 0xa68}, // mmMMVM_INVALIDATE_ENG13_SEM
++    {0x723, 0xa73}, // mmMMVM_INVALIDATE_ENG14_ADDR_RANGE_LO32
++    {0x724, 0xa74}, // mmMMVM_INVALIDATE_ENG14_ADDR_RANGE_HI32
++    {0x6f1, 0xa71}, // mmMMVM_INVALIDATE_ENG14_REQ
++    {0x703, 0xa72}, // mmMMVM_INVALIDATE_ENG14_ACK
++    {0x6df, 0xa70}, // mmMMVM_INVALIDATE_ENG14_SEM
++    {0x725, 0xa7b}, // mmMMVM_INVALIDATE_ENG15_ADDR_RANGE_LO32
++    {0x726, 0xa7c}, // mmMMVM_INVALIDATE_ENG15_ADDR_RANGE_HI32
++    {0x6f2, 0xa79}, // mmMMVM_INVALIDATE_ENG15_REQ
++    {0x704, 0xa7a}, // mmMMVM_INVALIDATE_ENG15_ACK
++    {0x6e0, 0xa78}, // mmMMVM_INVALIDATE_ENG15_SEM
++    {0x727, 0xa83}, // mmMMVM_INVALIDATE_ENG16_ADDR_RANGE_LO32
++    {0x728, 0xa84}, // mmMMVM_INVALIDATE_ENG16_ADDR_RANGE_HI32
++    {0x6f3, 0xa81}, // mmMMVM_INVALIDATE_ENG16_REQ
++    {0x705, 0xa82}, // mmMMVM_INVALIDATE_ENG16_ACK
++    {0x6e1, 0xa80}, // mmMMVM_INVALIDATE_ENG16_SEM
++    {0x729, 0xa8b}, // mmMMVM_INVALIDATE_ENG17_ADDR_RANGE_LO32
++    {0x72a, 0xa8c}, // mmMMVM_INVALIDATE_ENG17_ADDR_RANGE_HI32
++    {0x6f4, 0xa89}, // mmMMVM_INVALIDATE_ENG17_REQ
++    {0x706, 0xa8a}, // mmMMVM_INVALIDATE_ENG17_ACK
++    {0x6e2, 0xa88}, // mmMMVM_INVALIDATE_ENG17_SEM
++};
++static constexpr size_t VcnVmRegisterCount = 214;

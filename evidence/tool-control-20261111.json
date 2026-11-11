@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "record_type": "public_tool_control_run",
+  "date": "2026-11-11",
+  "environment": {
+    "cpu_gpu": "Apple M4",
+    "architecture": "arm64",
+    "os_version": "27.2",
+    "os_build": "26B123"
+  },
+  "build": {
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "sources_sha256": {
+      "metal-probe.m": "7cb29b0c14e933561e9639878c7a39977c009b60214d899d693c2a9dc9882a12",
+      "texture-residency-probe.m": "816496bfa1935e9b750407b1d4570c0022214f7884cb71de20d71e3f84f2d285"
+    }
+  },
+  "metal_probe": {
+    "exit_status": 0,
+    "result": {
+      "render_size": [
+        32,
+        32
+      ],
+      "device_name": "Apple M4",
+      "unified_memory": true,
+      "passed": true,
+      "render_pixels_checked": 1024,
+      "metal_available": 1,
+      "architecture": "arm64",
+      "compute_passed": true,
+      "render_passed": true,
+      "compute_values_checked": 1024
+    }
+  },
+  "texture_residency_probe": {
+    "arguments": [
+      "--pattern"
+    ],
+    "exit_status": 0,
+    "records": [
+      {
+        "pattern_textures": true,
+        "scope": "Retain one, three, then six private RGBA16Float textures; three pattern readback cycles per stage",
+        "type": "begin",
+        "texture_size": [
+          2182,
+          1394
+        ],
+        "device_name": "Apple M4"
+      },
+      {
+        "type": "residency_begin",
+        "phase": 1
+      },
+      {
+        "passed": true,
+        "phase": 1,
+        "elapsed_seconds": 0.00861629203427583,
+        "texture_allocated_bytes": 25231360,
+        "type": "residency_complete",
+        "texture_count": 1,
+        "readback_pixels_checked": 48
+      },
+      {
+        "type": "residency_begin",
+        "phase": 3
+      },
+      {
+        "passed": true,
+        "phase": 3,
+        "elapsed_seconds": 0.01841766608413309,
+        "texture_allocated_bytes": 75694080,
+        "type": "residency_complete",
+        "texture_count": 3,
+        "readback_pixels_checked": 144
+      },
+      {
+        "type": "residency_begin",
+        "phase": 6
+      },
+      {
+        "passed": true,
+        "phase": 6,
+        "elapsed_seconds": 0.0545351249165833,
+        "texture_allocated_bytes": 151388160,
+        "type": "residency_complete",
+        "texture_count": 6,
+        "readback_pixels_checked": 288
+      },
+      {
+        "type": "complete",
+        "workload_exit_status": 0,
+        "passed": true
+      }
+    ]
+  },
+  "limits": [
+    "Tool compilation and control-machine correctness only; not a new RedmiBook acceptance run.",
+    "x86_64 slice compiled but not executed on an AMD GPU.",
+    "No desktop FPS, full suite, sleep/wake, sustained workload, or external display validation."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "record_type": "sanitized_historical_failure",
+  "date": "2026-11-10",
+  "candidate": 18,
+  "environment": {
+    "device": "RedmiBook Pro 14 2022",
+    "cpu": "Ryzen 7 6800H",
+    "gpu": "Radeon 680M",
+    "os_version": "26.7.2",
+    "os_build": "25G332"
+  },
+  "hevc_320x240": {
+    "hardware_single_frame_encode_decode": "passed",
+    "pixel_samples": 460,
+    "maximum_pixel_error": 0
+  },
+  "h264_1920x1080": {
+    "first_encode": "did not complete",
+    "failed_stage": "VTCompressionSessionCompleteFrames",
+    "failed_queue": "VCN0EncLLQ",
+    "user_observed_desktop": "frozen"
+  },
+  "hevc_1920x1080": "not executed on RedmiBook",
+  "candidate_status": "withdrawn",
+  "current_hardware_video": "disabled",
+  "cause_status": "encoding queue completion failure confirmed; firmware, interrupt delivery, or memory coherence cause not yet established",
+  "source_file_hashes": {
+    "failure_analysis_json": "ef27aafaee8dd66785cef7307326c659eb9e8d40b089250079e638453b051afa"
+  }
+}

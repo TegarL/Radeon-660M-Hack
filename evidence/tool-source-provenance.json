@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-11",
+  "license": "GPL-2.0-only",
+  "tools": {
+    "metal-probe.m": {
+      "original_source_role": "local blackbox Metal compute and render probe",
+      "original_source_sha256": "407c803c1a229f8c9b56acbbc2770bc93e354be0e3f60b6adee40c7a72acdbb9",
+      "published_source_sha256": "7cb29b0c14e933561e9639878c7a39977c009b60214d899d693c2a9dc9882a12",
+      "changes": [
+        "Added license/adaptation notice.",
+        "Removed registry ID from output; compute and render checks retained."
+      ]
+    },
+    "texture-residency-probe.m": {
+      "original_source_role": "candidate23 --pattern real-device residency workload",
+      "original_source_sha256": "912a088fd25004645774afb9b516f212b44752e1b205e7852751dabfc7eda1ae",
+      "published_source_sha256": "816496bfa1935e9b750407b1d4570c0022214f7884cb71de20d71e3f84f2d285",
+      "changes": [
+        "Retained pattern shader, sampled half-float comparison, texture sizes, retention stages, and three readback cycles.",
+        "Selected the actual pattern path as the default; --pattern remains accepted.",
+        "Copied only command-completion, JSON-output, deadline, and clock helpers from the original workload support source.",
+        "Removed framework binding observer, code-page extraction dependencies, absolute uptime, device identifiers, and whole-GPU counters.",
+        "Added license/adaptation notice and command-failure output.",
+        "Emitted the final passed field as a JSON boolean, then rebuilt and repeated the control-machine checks."
+      ]
+    }
+  },
+  "original_support_source_sha256": "6b7f0cbe864f0ed4592b722bbb0e770b7a932aaef4367e6a352a66496429b636",
+  "limits": [
+    "Source hashes identify retained local inputs; the original private records are not uploaded.",
+    "These adaptations have a new control-machine check, not a new RedmiBook run."
+  ]
+}
