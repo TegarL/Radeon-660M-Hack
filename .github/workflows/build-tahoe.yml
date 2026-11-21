@@ -1,0 +1,52 @@
+name: Build Radeon 660M/680M Kext (macOS Tahoe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Clone Latest MacKernelSDK (Tahoe Support)
+        run: |
+          git clone https://github.com/acidanthera/MacKernelSDK.git
+
+      - name: Download Latest Lilu Debug Headers
+        run: |
+          curl -L -s https://api.github.com/repos/acidanthera/Lilu/releases/latest \
+          | grep "browser_download_url.*DEBUG.zip" \
+          | cut -d '"' -f 4 \
+          | xargs curl -L -o Lilu-DEBUG.zip
+          unzip -q Lilu-DEBUG.zip -d Lilu-Temp
+          cp -R Lilu-Temp/Lilu.kext .
+
+      - name: Build Kext
+        run: |
+          if [ -f "build.sh" ]; then
+            chmod +x build.sh && ./build.sh
+          elif [ -f "Makefile" ]; then
+            make RELEASE=1 || make
+          elif [ -f "CMakeLists.txt" ]; then
+            cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
+          else
+            xcodebuild -configuration Release -sdk macosx CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO
+          fi
+
+      - name: Collect Compiled Kext
+        run: |
+          mkdir -p output_kext
+          find . -maxdepth 4 -name "*.kext" -not -path "./Lilu*" -not -path "./MacKernelSDK*" -exec cp -R {} output_kext/ \;
+          ls -la output_kext/
+
+      - name: Upload Kext Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Radeon-660M-Tahoe-Kext
+          path: output_kext/
